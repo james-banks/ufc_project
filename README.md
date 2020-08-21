@@ -1,2 +1,2 @@
-# projects
-Collection of personal projects
+# ufc_project
+Project exploring the effect of reach advantage in the UFC.
