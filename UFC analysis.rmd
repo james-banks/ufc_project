@@ -1,0 +1,84 @@
+---
+title: "UFC reach advtantage analysis"
+author: "James Banks"
+date: "14/07/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Hello, thanks for taking an interest in my analysis! This analysis will be exploring the relationship between reach advantage, which is defined as the extra amount of reach that a fighter has over their opponent, and the probability of winning the fight. Commentators and journalists often talk about the positive effect that a reach advantage has, but I wanted to be able to quantify this and see this effect in action through the data. 
+
+This data set includes every UFC fight from 1993 to 2019 and was downloaded from [Kaggle](https://www.kaggle.com/rajeevw/ufcdata).
+
+## Data cleaning and visualisation
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+ufc_full <- read.csv("data.csv")
+
+ufc_full %>% group_by(weight_class) %>% summarise(n=n())
+```
+
+Since we are looking at the effect of reach advantage, it would be unwise to include Catch Weight and Open Weight bouts, as these indicate that the fighters might not be fighting at the same weight class, which is something which we wish to control in this scenario. 
+
+It also needs to be noted that the red corner is given to the fighter with the highest betting odds of winning (or the current champion of the division who won't necessarily be the favourite), so the win rates between red and blue are not 50%. For this reason, we will solely focus on the reach advantage of the red fighter and see what effect this has on the probability of winning.
+
+
+```{r}
+ufc_full <- ufc_full %>% filter(!(weight_class %in% c("Catch Weight","Open Weight")))
+
+ufc_full$R_Reach_Adv <- ufc_full$R_Reach_cms - ufc_full$B_Reach_cms
+
+table(ufc_full$Winner)
+
+#We recode the winner as numeric to make subsequent analysis more simple
+ufc_full$R_did_win <- ifelse(ufc_full$Winner == "Red", 1,
+                             ifelse(ufc_full$Winner == "Blue", 0, -1))
+
+#We do not want to consider draws in this analysis, and they are very rare in UFC anyway
+ufc_full <- ufc_full %>% filter(R_did_win != -1)
+
+#Visulalising the reach advantage
+ggplot(data=ufc_full) + geom_histogram(aes(x=R_Reach_Adv),bins=20) +
+  labs(x="Red corner reach advantage (cm)", y= "Count",
+       title="Histogram of the red corner's reach advantage")
+```
+
+## Building a model
+
+The next step is to build a model which attempts to quantify the effect that reach advantage holds with regards to the probability of winning the fight, all else equal.
+
+A binomial generalised linear model is suitable as we have a binary output.
+
+```{r}
+glm <- glm(R_did_win ~ R_Reach_Adv,data=ufc_full,family=binomial )
+summary(glm)
+
+redWinRate <- mean(ufc_full$R_did_win)
+
+x <- seq(-31,33, 0.1)
+y <- predict(glm, list(R_Reach_Adv = x), type = "link", se.fit=TRUE) %>%
+  as.data.frame() %>% mutate(reach = x,
+             lower = glm$family$linkinv((fit - 1.96*se.fit)),
+             estimate = glm$family$linkinv((fit)),
+             upper = glm$family$linkinv((fit + 1.96*se.fit)))
+
+y %>% ggplot(aes(x=reach, y=estimate)) +
+  geom_line(colour = "red") +
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha = 0.3) +
+  geom_hline(aes(yintercept =redWinRate), colour= "blue") +
+  labs(x = "Reach advantage (cm)", y = "Probability of winning")
+
+```
+
+## Conclusions
+
+This plot shows that the model suggests that having a reach advantage of over around 20 cm gives an statistically signficant increase of win rate, as determined by the 95% confident intervals which have been constructed. 
+
+The summary of the model shows that the p value for reach advantage is less than 0.001, which means we can reject the null hypothesis that reach advantage does not affect the probability of winning the fight to a 99.9% confidence level. 
